@@ -7,11 +7,26 @@ export const dynamic = "force-dynamic";
 const APP_ID = "fukugyo";
 const FREE_LIMIT = 3;
 
+const rateLimit = new Map<string, { count: number; resetAt: number }>();
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimit.get(ip);
+  if (!entry || now > entry.resetAt) { rateLimit.set(ip, { count: 1, resetAt: now + 60000 }); return true; }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
 function getClient() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for") || "unknown";
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json({ error: "リクエストが多すぎます。しばらく待ってから再試行してください。" }, { status: 429 });
+  }
+
   const { skills, hoursPerWeek, targetIncome, hasExperience } = await req.json();
   if (!skills?.trim()) {
     return NextResponse.json({ error: "スキルを入力してください" }, { status: 400 });
